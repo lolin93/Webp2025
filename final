@@ -266,7 +266,7 @@ LP_END:     RET
 
 ; 文字左捲一次 (0x18) -----------------------------------
 LCD_SCROLL_ONCE:
-            MOV     A,#018H
+            MOV     A,#01CH
             ACALL   LCD_CMD
             RET
 
@@ -283,7 +283,7 @@ TXT_TIGER:  DB 'TWO TIGERS',0
 ;    R2 = 次數
 ;========================================================
 DELAY_NOTE:
-D1:         MOV     R3,#40
+D1:         MOV     R3,#30
 D2:         MOV     R4,#248
 D3:         DJNZ    R4,D3
             DJNZ    R3,D2
@@ -297,35 +297,40 @@ D3:         DJNZ    R4,D3
 ; 這樣「Happy New Year 尾音」才不會突然跳八度變怪
 ;========================================================
 
-;--- 1) We Wish You A Merry Christmas (你原本資料不改) ---
+;========================================================
+; 樂譜資料區 (確保標籤名稱與上方呼叫處一致)
+;--------------------------------------------------------
+
+;--- 1) We Wish You A Merry Christmas (主歌) ---
 MELODY_WISH:
-            DB  0F6H,009H,30
-            DB  0F8H,08CH,30
-            DB  0F8H,08CH,15
-            DB  0F9H,05BH,15
-            DB  0F8H,08CH,15
-            DB  0F8H,018H,15
-            DB  0F7H,020H,30
-            DB  0F7H,020H,30
-            DB  0F7H,020H,30
-            DB  0F9H,05BH,30
-            DB  0F9H,05BH,15
-            DB  0FAH,015H,15
-            DB  0F9H,05BH,15
-            DB  0F8H,08CH,15
-            DB  0F8H,018H,30
-            DB  0F6H,009H,30
+            DB  0F6H,009H,25    ; Sol (低)
+            DB  0F8H,08CH,25    ; Do
+            DB  0F8H,08CH,12    ; Do
+            DB  0F9H,05BH,12    ; Re
+            DB  0F8H,08CH,12    ; Do
+            DB  0F8H,018H,12    ; Ti (低)
+            DB  0F7H,020H,25    ; La (低)
+            DB  0F7H,020H,25    ; La (低)
+            DB  0F7H,020H,25    ; La (低)
+            DB  0F9H,05BH,25    ; Re
+            DB  0F9H,05BH,12    ; Re
+            DB  0FAH,015H,12    ; Mi
+            DB  0F9H,05BH,12    ; Re
+            DB  0F8H,08CH,12    ; Do
+            DB  0F8H,018H,25    ; Ti (低)
+            DB  0F6H,009H,25    ; Sol (低)
             DB  00H
 
-;--- 2) "and a Happy New Year"（接在 We Wish 後面那一句）---
-;--- 2) Happy New Year (223645 / 半半一一一二) ---
+;--- 2) "and a Happy New Year" (結尾句 - 關鍵修正版) ---
+; 旋律改為：Sol(低) -> Do -> Do -> Re -> Ti(低) -> Do
+; 解決了原本不和諧跳音的問題
 MELODY_HAPPY:
-            DB  0F9H,05BH,10    ; 2 = D  (半拍)
-            DB  0F9H,05BH,10    ; 2 = D  (半拍)
-            DB  0FAH,015H,20    ; 3 = E  (一拍)
-            DB  0FBH,0F0H,20    ; 6 = A  (一拍)
-            DB  0FAH,0B9H,20    ; 4 = F  (一拍)
-            DB  0FBH,090H,40    ; 5 = G  (兩拍)
+            DB  0F8H,08CH,12    ; And (Do) - 快
+            DB  0F8H,08CH,12    ; a   (Do) - 快
+            DB  0F9H,05BH,20    ; Hap-(Re) - 中
+            DB  0F8H,08CH,20    ; py  (Do) - 中
+            DB  0F8H,018H,25    ; New (Ti) - 稍慢（導音）
+            DB  0F8H,08CH,60    ; Year(Do) - 長音結束
             DB  00H
 
 ;--- 3) Twinkle Twinkle Little Star (你原本資料不改) ---
