@@ -1,0 +1,372 @@
+;========================================================
+; Final - 3 Songs + LCD (S1/S2/S3 切歌，文字會變化+會動)
+;--------------------------------------------------------
+; S1 (P3.2) : We Wish 3 次 + "and a Happy New Year" 1 次
+;             LCD: 先 "MERRY CHRISTMAS"，播 Happy 時改 "HAPPY NEW YEAR"
+;             播放期間每個音後做一次 0x18 捲動，文字會動
+; S2 (P3.3) : Twinkle Twinkle Little Star  / LCD: "TWINKLE STAR"
+; S3 (P3.4) : Two Tigers                   / LCD: "TWO TIGERS"
+;--------------------------------------------------------
+; LCD: 8-bit mode, D0~D7 -> P1.0~P1.7, RS=P3.0, E=P3.1
+; Buzzer: P2.7 (方波)
+;========================================================
+
+            ORG     0000H
+            AJMP    MAIN
+
+            ORG     000BH
+            AJMP    TIMER0_ISR
+
+;-----------------------------
+; 變數 (內部 RAM)
+;-----------------------------
+NOTE_TH     EQU     30H        ; Timer0 reload high
+NOTE_TL     EQU     31H        ; Timer0 reload low
+
+;========================================================
+; MAIN
+;========================================================
+            ORG     0100H
+
+MAIN:
+            MOV     SP,#60H
+
+            MOV     P0,#0FFH       ; 目前沒用矩陣 LED，先設高
+            MOV     P1,#0FFH       ; LCD data 預設高
+            MOV     P2,#0FFH       ; P2.7 高 = 靜音
+            MOV     P3,#0FFH       ; S1/S2/S3 上拉輸入
+
+            MOV     TMOD,#01H      ; Timer0 Mode 1
+            CLR     TR0
+
+            SETB    EA
+            SETB    ET0
+
+            ACALL   LCD_INIT       ; 初始化 LCD
+            ACALL   LCD_SHOW_MERRY ; 開機先顯示 Merry Christmas
+
+;-----------------------------
+; 主迴圈：按哪顆播哪一首
+;（保留你原本：按下→等放開→才播放）
+;-----------------------------
+MAIN_LOOP:
+            ; ---- S1：We Wish x3 + Happy ----
+            JB      P3.2,CHK_S2        ; 若 P3.2=1 → 沒按
+            ACALL   KEY_DELAY
+WAIT_S1_REL:
+            JNB     P3.2,WAIT_S1_REL   ; 等放開
+
+            ACALL   MODE_S1
+            SJMP    MAIN_LOOP
+
+CHK_S2:
+            ; ---- S2：Twinkle Star ----
+            JB      P3.3,CHK_S3
+            ACALL   KEY_DELAY
+WAIT_S2_REL:
+            JNB     P3.3,WAIT_S2_REL
+
+            ACALL   MODE_S2
+            SJMP    MAIN_LOOP
+
+CHK_S3:
+            ; ---- S3：Two Tigers ----
+            JB      P3.4,MAIN_LOOP
+            ACALL   KEY_DELAY
+WAIT_S3_REL:
+            JNB     P3.4,WAIT_S3_REL
+
+            ACALL   MODE_S3
+            SJMP    MAIN_LOOP
+
+;========================================================
+; MODE_S1 : We Wish 3 次 + Happy New Year 1 次
+;（已修好：避免放開彈跳造成「連續跑兩次」）
+;========================================================
+MODE_S1:
+            ACALL   LCD_SHOW_MERRY
+
+            MOV     R7,#03
+MS1_WISH_LOOP:
+            MOV     DPTR,#MELODY_WISH
+            ACALL   PLAY_MELODY_SCROLL
+            DJNZ    R7,MS1_WISH_LOOP
+
+            ACALL   LCD_SHOW_HAPPY
+            MOV     DPTR,#MELODY_HAPPY
+            ACALL   PLAY_MELODY_SCROLL
+
+            ACALL   KEY_DELAY          ; 吃掉 release bounce，避免又觸發一次
+            RET
+
+;========================================================
+; MODE_S2 : 小星星
+;========================================================
+MODE_S2:
+            ACALL   LCD_SHOW_STAR
+            MOV     DPTR,#MELODY_STAR
+            ACALL   PLAY_MELODY_SCROLL
+            RET
+
+;========================================================
+; MODE_S3 : 兩隻老虎
+;========================================================
+MODE_S3:
+            ACALL   LCD_SHOW_TIGER
+            MOV     DPTR,#MELODY_TIGER
+            ACALL   PLAY_MELODY_SCROLL
+            RET
+
+;========================================================
+; PLAY_MELODY_SCROLL
+;   DPTR 指向 TH,TL,Dur,...,00H
+;   每顆音結束後做一次 LCD_SCROLL_ONCE，讓文字會動
+;========================================================
+PLAY_MELODY_SCROLL:
+PM_LOOP:
+            CLR     A
+            MOVC    A,@A+DPTR
+            JZ      PM_END              ; 遇到 00H 結束
+
+            MOV     NOTE_TH,A
+            INC     DPTR
+
+            CLR     A
+            MOVC    A,@A+DPTR
+            MOV     NOTE_TL,A
+            INC     DPTR
+
+            CLR     A
+            MOVC    A,@A+DPTR
+            MOV     R2,A                ; Duration
+            INC     DPTR
+
+            MOV     TH0,NOTE_TH
+            MOV     TL0,NOTE_TL
+
+            SETB    TR0                 ; 開 Timer0 播音
+            ACALL   DELAY_NOTE
+            CLR     TR0
+            SETB    P2.7                ; 靜音
+
+            ; 音與音之間的小停頓
+            MOV     R2,#8
+            ACALL   DELAY_NOTE
+
+            ; 文字左捲一次 => 文字會「動」
+            ACALL   LCD_SCROLL_ONCE
+
+            SJMP    PM_LOOP
+
+PM_END:
+            ; 歌尾多停一下
+            MOV     R2,#80
+            ACALL   DELAY_NOTE
+            RET
+
+;========================================================
+; Timer0 ISR - 產生方波
+;========================================================
+TIMER0_ISR:
+            PUSH    ACC
+            PUSH    PSW
+
+            MOV     TH0,NOTE_TH
+            MOV     TL0,NOTE_TL
+            CPL     P2.7               ; 反轉蜂鳴器
+
+            POP     PSW
+            POP     ACC
+            RETI
+
+;========================================================
+; 按鍵去彈跳用的小延遲
+;========================================================
+KEY_DELAY:
+            MOV     R5,#200
+KD1:        DJNZ    R5,KD1
+            RET
+
+;========================================================
+; LCD 8-bit 子程式 (P1 = D0~D7, RS=P3.0, E=P3.1)
+;========================================================
+LCD_DELAY:
+            MOV     R5,#200
+LD1:        DJNZ    R5,LD1
+            RET
+
+LCD_PULSE:
+            SETB    P3.1
+            ACALL   LCD_DELAY
+            CLR     P3.1
+            RET
+
+LCD_CMD:
+            MOV     P1,A
+            CLR     P3.0
+            ACALL   LCD_PULSE
+            ACALL   LCD_DELAY
+            RET
+
+LCD_WRITE:
+            MOV     P1,A
+            SETB    P3.0
+            ACALL   LCD_PULSE
+            ACALL   LCD_DELAY
+            RET
+
+LCD_INIT:
+            MOV     A,#038H        ; 8-bit, 2 line
+            ACALL   LCD_CMD
+            MOV     A,#00CH        ; display ON, cursor OFF
+            ACALL   LCD_CMD
+            MOV     A,#001H        ; clear
+            ACALL   LCD_CMD
+            MOV     A,#006H        ; entry mode: increment
+            ACALL   LCD_CMD
+            RET
+
+; 顯示不同標題 -----------------------------------------
+LCD_SHOW_MERRY:
+            MOV     A,#080H
+            ACALL   LCD_CMD
+            MOV     DPTR,#TXT_MERRY
+            ACALL   LCD_PRINT
+            RET
+
+LCD_SHOW_HAPPY:
+            MOV     A,#080H
+            ACALL   LCD_CMD
+            MOV     DPTR,#TXT_HAPPY
+            ACALL   LCD_PRINT
+            RET
+
+LCD_SHOW_STAR:
+            MOV     A,#080H
+            ACALL   LCD_CMD
+            MOV     DPTR,#TXT_STAR
+            ACALL   LCD_PRINT
+            RET
+
+LCD_SHOW_TIGER:
+            MOV     A,#080H
+            ACALL   LCD_CMD
+            MOV     DPTR,#TXT_TIGER
+            ACALL   LCD_PRINT
+            RET
+
+LCD_PRINT:
+LP1:        CLR     A
+            MOVC    A,@A+DPTR
+            JZ      LP_END
+            ACALL   LCD_WRITE
+            INC     DPTR
+            SJMP    LP1
+LP_END:     RET
+
+; 文字左捲一次 (0x18) -----------------------------------
+LCD_SCROLL_ONCE:
+            MOV     A,#018H
+            ACALL   LCD_CMD
+            RET
+
+;========================================================
+; LCD 顯示字串
+;========================================================
+TXT_MERRY:  DB 'MERRY CHRISTMAS',0
+TXT_HAPPY:  DB 'HAPPY NEW YEAR',0
+TXT_STAR:   DB 'TWINKLE STAR',0
+TXT_TIGER:  DB 'TWO TIGERS',0
+
+;========================================================
+; DELAY_NOTE - 音符長度延遲
+;    R2 = 次數
+;========================================================
+DELAY_NOTE:
+D1:         MOV     R3,#40
+D2:         MOV     R4,#248
+D3:         DJNZ    R4,D3
+            DJNZ    R3,D2
+            DJNZ    R2,D1
+            RET
+
+;========================================================
+; 樂譜資料
+;--------------------------------------------------------
+; 注意：所有歌曲都使用同一套 TH/TL（你原本的那套 0F*）
+; 這樣「Happy New Year 尾音」才不會突然跳八度變怪
+;========================================================
+
+;--- 1) We Wish You A Merry Christmas (你原本資料不改) ---
+MELODY_WISH:
+            DB  0F6H,009H,30
+            DB  0F8H,08CH,30
+            DB  0F8H,08CH,15
+            DB  0F9H,05BH,15
+            DB  0F8H,08CH,15
+            DB  0F8H,018H,15
+            DB  0F7H,020H,30
+            DB  0F7H,020H,30
+            DB  0F7H,020H,30
+            DB  0F9H,05BH,30
+            DB  0F9H,05BH,15
+            DB  0FAH,015H,15
+            DB  0F9H,05BH,15
+            DB  0F8H,08CH,15
+            DB  0F8H,018H,30
+            DB  0F6H,009H,30
+            DB  00H
+
+;--- 2) "and a Happy New Year"（接在 We Wish 後面那一句）---
+;--- 2) Happy New Year (223645 / 半半一一一二) ---
+MELODY_HAPPY:
+            DB  0F9H,05BH,10    ; 2 = D  (半拍)
+            DB  0F9H,05BH,10    ; 2 = D  (半拍)
+            DB  0FAH,015H,20    ; 3 = E  (一拍)
+            DB  0FBH,0F0H,20    ; 6 = A  (一拍)
+            DB  0FAH,0B9H,20    ; 4 = F  (一拍)
+            DB  0FBH,090H,40    ; 5 = G  (兩拍)
+            DB  00H
+
+;--- 3) Twinkle Twinkle Little Star (你原本資料不改) ---
+;    C C G G | A A G - | F F E E | D D C -
+MELODY_STAR:
+            DB  0F8H,08CH,20   ; C
+            DB  0F8H,08CH,20   ; C
+            DB  0FBH,090H,20   ; G
+            DB  0FBH,090H,20   ; G
+            DB  0FBH,0F0H,20   ; A
+            DB  0FBH,0F0H,20   ; A
+            DB  0FBH,090H,40   ; G (長)
+
+            DB  0FAH,0B9H,20   ; F
+            DB  0FAH,0B9H,20   ; F
+            DB  0FAH,015H,20   ; E
+            DB  0FAH,015H,20   ; E
+            DB  0F9H,05BH,20   ; D
+            DB  0F9H,05BH,20   ; D
+            DB  0F8H,08CH,40   ; C (長)
+            DB  00H
+
+;--- 4) Two Tigers (你原本資料不改) ---
+MELODY_TIGER:
+            DB  0F8H,08CH,20   ; C
+            DB  0F9H,05BH,20   ; D
+            DB  0FAH,015H,20   ; E
+            DB  0F8H,08CH,40   ; C
+
+            DB  0F8H,08CH,20   ; C
+            DB  0F9H,05BH,20   ; D
+            DB  0FAH,015H,20   ; E
+            DB  0F8H,08CH,40   ; C
+
+            DB  0FAH,015H,20   ; E
+            DB  0FAH,0B9H,20   ; F
+            DB  0FBH,090H,40   ; G
+
+            DB  0FAH,015H,20   ; E
+            DB  0FAH,0B9H,20   ; F
+            DB  0FBH,090H,40   ; G
+            DB  00H
+
+            END
